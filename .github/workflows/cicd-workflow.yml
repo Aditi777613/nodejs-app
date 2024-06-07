@@ -11,19 +11,23 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v3
 
-      - name: Docker build, tag, and push
-        run: |
-          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws/n0x6b6x3
-          docker build -t nodejs-app .
-          docker tag nodejs-app:latest public.ecr.aws/n0x6b6x3/nodejs-app:latest
-          docker push public.ecr.aws/n0x6b6x3/nodejs-app:latest
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: 'us-east-1'
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build Docker image
+        run: docker build -t nodejs-app .
+          docker tag nodejs-app:latest ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
+
+      - name: Push Docker image to ECR
+        run: docker push ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
 
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: task-def
@@ -31,7 +35,7 @@ jobs:
         with:
           task-definition: nodejs-app-task-definition.json
           container-name: nodejs-app
-          image: public.ecr.aws/n0x6b6x3/nodejs-app:latest
+          image: ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
 
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
