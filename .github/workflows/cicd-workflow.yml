@@ -2,49 +2,55 @@ name: CICD
 
 on:
   push:
-    branches: [ deploy-to-ecs-fargate ]
+    branches: [deploy-to-ecs-fargate]
 
 jobs:
   build-and-deploy:
-    runs-on: [ ubuntu-latest ]
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source
+      - name: Checkout source
         uses: actions/checkout@v3
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ' us-east-1 '
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-        with:
-          mask-password: 'true'
-          
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-          REPOSITORY: nodejs-app
+
+      - name: Debug - Print ECR Registry URL
+        run: echo "ECR Registry URL: ${{ steps.login-ecr.outputs.registry }}"
+
+      - name: Build Docker image
         run: |
-          docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG . 
-          docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
-      
+          docker build -t nodejs-app .
+          docker tag nodejs-app:latest ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
+        shell: bash
+
+      - name: Debug - Print Docker images
+        run: docker images
+        shell: bash
+
+      - name: Push Docker image to ECR
+        run: docker push ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
+        shell: bash
 
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: nodejs-app-task-definition.json 
+          task-definition: nodejs-app-task-definition.json
           container-name: nodejs-app
-          image: ${{ steps.build-image.outputs.image }}    
+          image: ${{ steps.login-ecr.outputs.registry }}/nodejs-app:latest
+
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: nodejs-app-service
-          cluster: DevCluster
-          wait-for-service-stability: true    
+          cluster: DevOps
+          wait-for-service-stability: true
